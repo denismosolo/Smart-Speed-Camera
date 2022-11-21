@@ -38,7 +38,6 @@ def client(targa, codice_patente, e, n, id):
             else:
                 print(colored('ack received', 'yellow'))
                 sio.disconnect()
-                #print(colored('disconnected from server', 'green'))
             if not sio.connected:
                 break
 
@@ -61,9 +60,7 @@ def client(targa, codice_patente, e, n, id):
     sio.connect('http://192.168.1.172:5000')
 
 
-#client('ER804SX','UD1234567A',l_public_key['WM562WT1FM'][0],l_public_key['WM562WT1FM'][1], 'WM562WT1FM')
-
-
+#simulate the arriving of 10 clients
 while i<10:
     targa = l_targa[i]
     codice_patente = l_codice_patente[i]

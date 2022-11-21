@@ -1,17 +1,17 @@
 #server
-import eventlet
-import socketio
-from encrypt_decrypt_packet import generate_keys, decrypt_packet
+import copy
 import os
-from termcolor import colored
+import random
+import secrets
 import threading
 import time
-import random
-from Rete import get_plate
-from GUI_DatiPatente import *
+import eventlet
+import socketio
+from termcolor import colored
+from encrypt_decrypt_packet import decrypt_packet
 from get_from_DB import get_key_from_DB
-import secrets
-import copy
+from GUI_DatiPatente import *
+from Rete import get_plate
 
 os.system('color')
 
@@ -23,9 +23,9 @@ arrived_photo = False
 
 #photo simulator
 def take_photo():
-    print(colored('generating photo...', 'red'))
-    global arrived_photo #devo dichiararla ogni volta che la devo modificare
-    t = random.randint(25,30)
+    print(colored('\ngenerating photo...\n', 'red'))
+    global arrived_photo
+    t = random.randint(20,30)
     time.sleep(t)
     arrived_photo = True
 
@@ -34,59 +34,60 @@ def waiting_loop():
     while True:
         global arrived_photo
         if arrived_photo:
-            #resetto il flag
+            #flag reset
             arrived_photo = False
-            #eseguo thread di riconoscimento
-            print(colored('foto arrivata', 'red'))
+            #launch recognisation thread
+            print(colored('\n...photo arrived\n', 'red'),colored('\nplate extraction started\n','yellow'))
             process_ph = threading.Thread(target=process_photo)
             process_ph.start()
-            break
-            """SOLO AI FINI DELLA SIMULAZIONE"""
-            #riavvio il thread di simulazione della foto
+
+            """UNCOMMENT TO RELUNCHING THE PHOTO SIMULATOR"""
             #photo = threading.Thread(target=take_photo)
             #photo.start()
-        #print("CONTINUO L'ATTESA")
 
+            break
+            
+
+#photo and data processing
 def process_photo():
-    #l_key_pck = []
     dict_targhe = {}
-    #copio dizionari pacchetti e chiavi
+    #deep copy of the dict
     encrypted_packets = copy.deepcopy(enc_packets)
+    time.sleep(3)
+    print(colored(f"\ndecrypting packets...\n", 'yellow'))
     for secretID in encrypted_packets.keys():
         private_key = get_key_from_DB(secretID)
         targa,codice,result,message = decrypt_packet(private_key, encrypted_packets[secretID])
-        #print(f'Analizzo il pacchetto di:\t{secretID}')
         if result:
             dict_targhe[targa] = codice
         else:
-            print(colored(f"ATTENZIONE:\nL'utente con secretID: {secretID} ha inviato i seguenti dati ma si è verificato un errore:\nTarga: {targa}\t Codice Patente: {codice}\nMessaggio di errore: {message}",'red'))
-    print(colored(dict_targhe, 'yellow'))
-    #scelgo una foto in base alle targhe disponibili
+            print(colored(f"\nATTENZIONE:\nL'utente con secretID: {secretID} ha inviato i seguenti dati ma si è verificato un errore:\nTarga: {targa}\t Codice Patente: {codice}\nMessaggio di errore: {message}\n",'red'))
+    print(colored(f"\ndictionary of client's data decrypted: \n", 'yellow'))
+    [print(f"\t{key} : {value}") for key, value in dict_targhe.items()]
+    print('\n\n')
+    #chosing a photo between the plates arrived
     max = len(dict_targhe)-1
     photo_name = list(dict_targhe.items())[random.randint(0,max)][0]
     photo = f'{photo_name}.png'
-    #print(colored(photo, 'red'))
-    #p=['HR26BC5514.png']
-    #photo=p[0]#random.randint(0,1)]
+    #extracting plate from photo
     plate = get_plate(photo)
-    print(colored(plate, 'yellow'))
-    #targa=list(dict_targhe.items())[0][0]
-    #scarico i dati dal server
+    print(colored(f'\n\nPlate extracted from photo:', 'yellow'),f'\t{plate}\n')
+    #GUI launching
     root=Tk()
     App=DataDisplayer(root, plate, dict_targhe[plate])
+    time.sleep(3)
     root.mainloop()
 
 
-#aggiungere la rimozione dei vecchi pacchetti
 def save_packet(sid, packet):
     secretID = packet.split('-')[0]
     if secretID in enc_packets.keys():
         pass
     elif len(enc_packets)>=10:
-        #rimuovi il primo pacchetto (il più vecchio) e la relativa chiave
+        #removes the oldest packet
         first_entry = list(enc_packets.items())[0][0]
         del enc_packets[first_entry]
-        #inserisci il nuovo pacchetto
+        #inserts the new one
         enc_packets[secretID] = (packet.split('-')[1], d_nonce[sid])
         del d_nonce[sid]
     else:
@@ -98,29 +99,29 @@ app = socketio.WSGIApp(sio)
 
 @sio.event
 def connect(sid, environ):
-    print(colored(f'connect {sid}]', 'green'))
+    print(colored(f'\nconnect {sid}]', 'green'))
 
 @sio.on('requesting nonce')
 def send_nonce(sid):
-    nonce = secrets.token_hex(16) + '_' + str(int(time.time()))  #timestamp --> seconds since the epoch, in caso sostituire con data/ora
+    nonce = secrets.token_hex(16) + '_' + str(int(time.time()))  #timestamp --> seconds since the epoch
     d_nonce[sid] = nonce
     sio.emit('nonce', nonce ,room=sid)
-    print(colored(f'nonce sent to {sid}: \t{nonce}', 'yellow'))
+    print(colored(f'nonce sent to {sid}: \t{nonce}\n', 'yellow'))
     
 @sio.event
 def packet(sid, data):
-    print(colored(f'message from {sid} is: \t{data}', 'yellow'))
+    print(colored(f'message from {sid} is:', 'yellow'), f'  {data}')
     save_packet(sid, data)
     return True
 
 @sio.event
 def disconnect(sid):
-    print(colored(f'disconnect {sid}', 'green'))
+    print(colored(f'disconnect {sid}\n', 'green'))
 
 if __name__ == '__main__':
     loop = threading.Thread(target=waiting_loop)
     loop.start()
     photo = threading.Thread(target=take_photo)
     photo.start()
-    eventlet.wsgi.server(eventlet.listen(('', 5000)), app)
+    eventlet.wsgi.server(eventlet.listen(('', 5000)), app, log_output=False)
 
